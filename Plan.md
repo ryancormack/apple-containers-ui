@@ -12,33 +12,38 @@ Build a native macOS desktop application to manage Apple Containers with a graph
 
 ## Technical Architecture
 
-### Integration Approach
+### Integration Approach - IMPORTANT UPDATE
 
-Use the **Containerization Swift Package** directly in your SwiftUI app. This is Apple's official Swift package that provides APIs for managing Linux containers on macOS using Virtualization.framework.
+**This app wraps the `container` CLI tool, NOT the Containerization framework directly.**
 
-**Package URL**: `https://github.com/apple/containerization`
+There are two different things:
+1. **Containerization Framework** - Low-level APIs for building your own container system
+2. **Container CLI Tool** - Apple's Docker-like CLI that uses XPC services to manage containers
 
-**Benefits:**
-- Native Swift APIs with proper type safety
-- Better performance than wrapping CLI commands
-- Direct access to container operations
-- Proper async/await integration
-- Access to streaming APIs for logs
+**Why wrap the CLI instead of using Containerization directly?**
+
+The `container` CLI tool manages its own container and image storage through XPC services (`container-apiserver`, `container-core-images`, `container-runtime-linux`). To view containers and images created with `container run` or `container image pull`, you need to either:
+- Communicate with the container CLI's XPC services (complex, undocumented)
+- Wrap the CLI commands (simpler, supported approach)
+
+**This app uses the CLI wrapper approach** - executing `container` commands and parsing their output.
 
 ### System Requirements
 
 ```
 Required:
 - Mac with Apple Silicon (M1 or later)
-- macOS 26 beta (or later when released)
-- Xcode 26 beta (or later when released)
-- Linux kernel for containers (can be fetched automatically)
+- macOS 26 (recommended) or macOS 15.5+ (limited support)
+- Xcode 15.0+ for building the app
+- Container CLI installed from: https://github.com/apple/container/releases
+- Container system running: `container system start`
 ```
 
 **Important Notes:**
-- The Containerization package requires macOS 26+ and is currently in beta
-- Version 0.1.0+ guarantees source stability within minor versions only
-- A Linux kernel is required for spawning VMs (can use Kata Containers kernel)
+- The container CLI must be installed and running
+- Run `container system start` before using the app
+- The app executes `/usr/local/bin/container` commands
+- JSON output parsing for structured data
 
 ### Project Structure
 
@@ -75,50 +80,70 @@ ContainerManagerApp/
 
 ## Implementation Phases
 
-### Phase 1: Project Setup & Dependencies
+### Phase 1: Project Setup & CLI Verification
 
 **Tasks:**
 
-1. **Create new SwiftUI macOS app project in Xcode**
+1. **Install Container CLI** (if not already installed)
+   - Download from: https://github.com/apple/container/releases
+   - Double-click the .pkg installer
+   - Enter admin password when prompted
+   - Files install to `/usr/local/bin/container`
+
+2. **Start Container system**
+   ```bash
+   container system start
+   # This starts the apiserver and installs the default kernel
+   # Accept kernel download if prompted
+   ```
+
+3. **Verify CLI is working**
+   ```bash
+   # Test basic commands
+   container --version
+   container list
+   container image list
+   ```
+
+4. **Create new SwiftUI macOS app project in Xcode**
    ```
    Xcode → New Project → macOS → App
    Product Name: ContainerManager
    Interface: SwiftUI
    Language: Swift
-   Minimum deployment: macOS 14.0+ (will need 26+ for runtime)
+   Minimum deployment: macOS 14.0
    ```
 
-2. **Add Containerization package dependency**
-   - In Xcode: File → Add Package Dependencies
-   - Enter URL: `https://github.com/apple/containerization`
-   - Select version: Up to Next Minor from 0.1.0
-   - Add to your target
-
-3. **Set up project structure**
+5. **Set up project structure**
    - Create groups: Models, Services, ViewModels, Views, Views/Components, Utilities, App
    - Right-click project → New Group for each
 
-4. **Configure app entitlements and settings**
+6. **Configure app entitlements**
    - Target → Signing & Capabilities
-   - Ensure proper team is selected
-   - Note: App Sandbox may need to be disabled or configured for VM operations
-   - Set minimum deployment to macOS 14.0 (but note runtime requires 26+)
+   - **Disable App Sandbox** (required to execute external binaries)
+   - Signing → Select your development team
 
-5. **Fetch default kernel (required for containers)**
-   ```bash
-   # In terminal, navigate to a suitable location
-   # Download Kata Containers kernel or use containerization's fetch
-   # See: https://github.com/kata-containers/kata-containers/releases/
-   ```
-
-**Deliverable**: Empty SwiftUI app that builds successfully with Containerization package imported
+**Deliverable**: Empty SwiftUI app that builds successfully, with Container CLI installed and running
 
 **Verification**:
 ```swift
-// Add to ContentView to test import
-import Containerization
-
-// If this compiles, you're good to go
+// Add to ContentView to test CLI access
+func testCLI() async {
+    let task = Process()
+    task.executableURL = URL(fileURLWithPath: "/usr/local/bin/container")
+    task.arguments = ["--version"]
+    
+    let pipe = Pipe()
+    task.standardOutput = pipe
+    
+    try? task.run()
+    task.waitUntilExit()
+    
+    let data = pipe.fileHandleForReading.readDataToEndOfFile()
+    if let output = String(data: data, encoding: .utf8) {
+        print("Container CLI working: \(output)")
+    }
+}
 ```
 
 ---
@@ -261,51 +286,26 @@ enum ByteFormatter {
 
 ---
 
-### Phase 3: Container Service Layer
+### Phase 3: Container Service Layer (CLI Wrapper)
 
 **Create `Services/ContainerService.swift`**:
 
 ```swift
 import Foundation
-import Containerization
-import ContainerizationOCI
 
 actor ContainerService {
-    private let containerManager: ContainerManager
-    private let kernelURL: URL
+    private let cliPath: String
     
-    init(kernelPath: String) throws {
-        // Initialize kernel configuration
-        self.kernelURL = URL(fileURLWithPath: kernelPath)
-        
-        // Create kernel object
-        let kernel = Kernel(
-            path: kernelURL,
-            platform: .linuxArm
-        )
-        
-        // Initialize ContainerManager
-        // Note: Adjust based on actual API - may need initfsReference
-        self.containerManager = try ContainerManager(kernel: kernel)
+    init(cliPath: String = "/usr/local/bin/container") {
+        self.cliPath = cliPath
     }
     
     /// List all containers
     func listContainers() async throws -> [ContainerInfo] {
         do {
-            // Get containers from ContainerManager
-            // Note: Adjust based on actual API
-            let containers = try await containerManager.listContainers()
-            
-            // Convert to our model
-            return containers.map { container in
-                ContainerInfo(
-                    id: container.id,
-                    name: container.name ?? container.id,
-                    image: container.imageName ?? "unknown",
-                    state: mapState(container.state),
-                    ipAddress: container.ipAddress
-                )
-            }
+            // Execute: container list
+            let output = try await execute(arguments: ["list"])
+            return try parseContainerList(output)
         } catch {
             throw AppError(
                 message: "Failed to list containers",
@@ -317,17 +317,16 @@ actor ContainerService {
     /// Get specific container by ID
     func getContainer(id: String) async throws -> ContainerInfo? {
         let containers = try await listContainers()
-        return containers.first { $0.id == id }
+        return containers.first { $0.id == id || $0.id.hasPrefix(id) }
     }
     
     /// Stop a container gracefully
     func stopContainer(id: String) async throws {
         do {
-            // Note: Adjust based on actual API
-            try await containerManager.stop(containerId: id)
+            _ = try await execute(arguments: ["stop", id])
         } catch {
             throw AppError(
-                message: "Failed to stop container",
+                message: "Failed to stop container '\(id)'",
                 underlyingError: error
             )
         }
@@ -336,111 +335,269 @@ actor ContainerService {
     /// Kill a container forcefully
     func killContainer(id: String) async throws {
         do {
-            // Note: Adjust based on actual API
-            try await containerManager.kill(containerId: id)
+            _ = try await execute(arguments: ["kill", id])
         } catch {
             throw AppError(
-                message: "Failed to kill container",
+                message: "Failed to kill container '\(id)'",
+                underlyingError: error
+            )
+        }
+    }
+    
+    /// Remove a stopped container
+    func removeContainer(id: String) async throws {
+        do {
+            _ = try await execute(arguments: ["delete", id])
+        } catch {
+            throw AppError(
+                message: "Failed to remove container '\(id)'",
                 underlyingError: error
             )
         }
     }
     
     /// Stream logs from a container
-    func streamLogs(containerId: String) async throws -> AsyncStream<String> {
-        // Note: Adjust based on actual API for log streaming
-        return AsyncStream { continuation in
-            Task {
-                do {
-                    // Get log stream from container
-                    let logStream = try await containerManager.logs(containerId: containerId)
-                    
-                    for await logLine in logStream {
-                        continuation.yield(logLine)
-                    }
-                    
-                    continuation.finish()
-                } catch {
-                    continuation.finish()
+    func streamLogs(containerId: String, follow: Bool = false) async throws -> AsyncStream<String> {
+        var args = ["logs", containerId]
+        if follow {
+            args.append("--follow")
+        }
+        
+        return try await executeStreaming(arguments: args)
+    }
+    
+    /// Inspect container details
+    func inspectContainer(id: String) async throws -> String {
+        return try await execute(arguments: ["inspect", id])
+    }
+    
+    // MARK: - Private Helper Methods
+    
+    /// Execute a container command and return output
+    private func execute(arguments: [String]) async throws -> String {
+        return try await withCheckedThrowingContinuation { continuation in
+            let task = Process()
+            
+            guard FileManager.default.fileExists(atPath: cliPath) else {
+                continuation.resume(throwing: AppError(
+                    message: "Container CLI not found at \(cliPath). Please install it first."
+                ))
+                return
+            }
+            
+            task.executableURL = URL(fileURLWithPath: cliPath)
+            task.arguments = arguments
+            
+            let outputPipe = Pipe()
+            let errorPipe = Pipe()
+            task.standardOutput = outputPipe
+            task.standardError = errorPipe
+            
+            task.terminationHandler = { process in
+                let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
+                let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+                
+                if process.terminationStatus != 0 {
+                    let errorMessage = String(data: errorData, encoding: .utf8) ?? "Unknown error"
+                    continuation.resume(throwing: AppError(message: errorMessage))
+                    return
                 }
+                
+                guard let output = String(data: outputData, encoding: .utf8) else {
+                    continuation.resume(throwing: AppError(message: "Invalid output encoding"))
+                    return
+                }
+                
+                continuation.resume(returning: output)
+            }
+            
+            do {
+                try task.run()
+            } catch {
+                continuation.resume(throwing: AppError(
+                    message: "Failed to execute container command",
+                    underlyingError: error
+                ))
             }
         }
     }
     
-    /// Remove a container
-    func removeContainer(id: String) async throws {
-        do {
-            try await containerManager.remove(containerId: id)
-        } catch {
-            throw AppError(
-                message: "Failed to remove container",
-                underlyingError: error
-            )
+    /// Execute command and stream output line by line
+    private func executeStreaming(arguments: [String]) async throws -> AsyncStream<String> {
+        guard FileManager.default.fileExists(atPath: cliPath) else {
+            throw AppError(message: "Container CLI not found at \(cliPath)")
+        }
+        
+        return AsyncStream { continuation in
+            let task = Process()
+            task.executableURL = URL(fileURLWithPath: cliPath)
+            task.arguments = arguments
+            
+            let pipe = Pipe()
+            task.standardOutput = pipe
+            
+            let handle = pipe.fileHandleForReading
+            
+            // Set up data available notification
+            NotificationCenter.default.addObserver(
+                forName: .NSFileHandleDataAvailable,
+                object: handle,
+                queue: nil
+            ) { _ in
+                let data = handle.availableData
+                if data.isEmpty {
+                    continuation.finish()
+                } else if let line = String(data: data, encoding: .utf8) {
+                    // Split by newlines and yield each line
+                    line.components(separatedBy: .newlines)
+                        .filter { !$0.isEmpty }
+                        .forEach { continuation.yield($0) }
+                    handle.waitForDataInBackgroundAndNotify()
+                }
+            }
+            
+            handle.waitForDataInBackgroundAndNotify()
+            
+            do {
+                try task.run()
+            } catch {
+                continuation.finish()
+            }
+            
+            continuation.onTermination = { @Sendable _ in
+                task.terminate()
+            }
         }
     }
     
-    // MARK: - Private Helpers
-    
-    private func mapState(_ state: Any) -> ContainerState {
-        // Map Containerization state to our enum
-        // Note: Adjust based on actual state type from package
-        return .unknown
+    /// Parse container list output
+    private func parseContainerList(_ output: String) throws -> [ContainerInfo] {
+        // Container list output format (table):
+        // CONTAINER ID   NAME        IMAGE           STATUS
+        // abc123...      my-cont     alpine:latest   Up 5 minutes
+        
+        let lines = output.components(separatedBy: .newlines)
+            .filter { !$0.isEmpty }
+        
+        guard lines.count > 1 else {
+            // No containers (only header or empty)
+            return []
+        }
+        
+        // Skip the header line
+        let dataLines = lines.dropFirst()
+        
+        return dataLines.compactMap { line in
+            let components = line.split(separator: " ", omittingEmptySubsequences: true)
+                .map { String($0) }
+            
+            guard components.count >= 4 else { return nil }
+            
+            let id = components[0]
+            let name = components[1]
+            let image = components[2]
+            let statusParts = components.dropFirst(3)
+            let status = statusParts.joined(separator: " ")
+            
+            // Determine state from status
+            let state: ContainerState
+            if status.lowercased().contains("up") {
+                state = .running
+            } else if status.lowercased().contains("exited") {
+                state = .exited
+            } else if status.lowercased().contains("paused") {
+                state = .paused
+            } else {
+                state = .stopped
+            }
+            
+            return ContainerInfo(
+                id: id,
+                name: name,
+                image: image,
+                state: state,
+                ipAddress: nil, // Not provided in list output
+                createdAt: nil,
+                command: nil
+            )
+        }
     }
 }
 ```
 
-**Important Implementation Notes:**
+**Key Implementation Notes:**
 
-The above code contains placeholder method names that need to be verified against the actual Containerization API. To implement correctly:
+1. **CLI Command Format:**
+   - `container list` - Lists all containers
+   - `container stop <id>` - Stop gracefully
+   - `container kill <id>` - Force kill
+   - `container delete <id>` - Remove container
+   - `container logs <id> [--follow]` - View logs
+   - `container inspect <id>` - Detailed info
 
-1. **Study the API documentation**: Visit `https://apple.github.io/containerization/documentation/`
-2. **Examine example code**: Look at `Sources/cctl/RunCommand.swift` and other examples in the package
-3. **Check ContainerManager API**: Determine exact method names and parameters
-4. **Verify async patterns**: Ensure proper use of async/await with the package APIs
+2. **Output Parsing:**
+   - The container CLI outputs text tables by default
+   - Parse the table format (space-separated columns)
+   - Extract: ID, NAME, IMAGE, STATUS
+   - Map status text to ContainerState enum
 
-**Key areas to verify:**
-- How to initialize `ContainerManager` (may need initfs reference)
-- Actual method names for listing, stopping, killing containers
-- How container state is represented
-- How to access container logs
-- Proper error handling patterns
+3. **Error Handling:**
+   - Check if CLI exists before executing
+   - Capture stderr for error messages
+   - Check termination status
+   - Wrap errors in AppError with context
 
-**Deliverable**: Working service layer that can interact with containers using Containerization APIs
+4. **Async Execution:**
+   - Use Process class for spawning CLI
+   - Use continuations for async/await
+   - Handle termination callbacks properly
+   - Stream output for logs using AsyncStream
+
+**Testing the Service:**
+
+```swift
+// In a View or test file
+Task {
+    let service = ContainerService()
+    
+    // Test listing
+    let containers = try await service.listContainers()
+    print("Found \(containers.count) containers")
+    
+    // Test logs
+    if let first = containers.first {
+        let logs = try await service.streamLogs(containerId: first.id)
+        for await line in logs {
+            print(line)
+        }
+    }
+}
+```
+
+**Deliverable**: Working service layer that executes CLI commands and parses output
 
 ---
 
-### Phase 4: Image Service Layer
+### Phase 4: Image Service Layer (CLI Wrapper)
 
 **Create `Services/ImageService.swift`**:
 
 ```swift
 import Foundation
-import Containerization
-import ContainerizationOCI
 
 actor ImageService {
-    private let imageStore: ImageStore
+    private let cliPath: String
     
-    init() throws {
-        // Initialize ImageStore from Containerization
-        self.imageStore = try ImageStore()
+    init(cliPath: String = "/usr/local/bin/container") {
+        self.cliPath = cliPath
     }
     
     /// List all local images
     func listImages() async throws -> [ImageInfo] {
         do {
-            let images = try await imageStore.list()
-            
-            return images.map { image in
-                ImageInfo(
-                    id: image.digest,
-                    name: image.reference.name,
-                    tag: image.reference.tag ?? "latest",
-                    digest: image.digest,
-                    size: image.size,
-                    createdAt: nil
-                )
-            }
+            // Execute: container image list
+            let output = try await execute(arguments: ["image", "list"])
+            return try parseImageList(output)
         } catch {
             throw AppError(
                 message: "Failed to list images",
@@ -456,18 +613,12 @@ actor ImageService {
     }
     
     /// Pull an image from a registry
-    func pullImage(reference: String, onProgress: @escaping (Double) -> Void) async throws {
+    func pullImage(reference: String) async throws {
         do {
-            // Note: Adjust based on actual API for pulling images
-            let ref = try Reference.parse(reference)
-            
-            // Pull with progress tracking
-            try await imageStore.pull(reference: ref) { progress in
-                onProgress(progress)
-            }
+            _ = try await execute(arguments: ["image", "pull", reference])
         } catch {
             throw AppError(
-                message: "Failed to pull image",
+                message: "Failed to pull image '\(reference)'",
                 underlyingError: error
             )
         }
@@ -476,11 +627,10 @@ actor ImageService {
     /// Remove an image
     func removeImage(reference: String) async throws {
         do {
-            let ref = try Reference.parse(reference)
-            try await imageStore.remove(reference: ref)
+            _ = try await execute(arguments: ["image", "remove", reference])
         } catch {
             throw AppError(
-                message: "Failed to remove image",
+                message: "Failed to remove image '\(reference)'",
                 underlyingError: error
             )
         }
@@ -489,9 +639,7 @@ actor ImageService {
     /// Tag an image
     func tagImage(source: String, target: String) async throws {
         do {
-            let sourceRef = try Reference.parse(source)
-            let targetRef = try Reference.parse(target)
-            try await imageStore.tag(source: sourceRef, target: targetRef)
+            _ = try await execute(arguments: ["image", "tag", source, target])
         } catch {
             throw AppError(
                 message: "Failed to tag image",
@@ -499,10 +647,185 @@ actor ImageService {
             )
         }
     }
+    
+    /// Inspect image details
+    func inspectImage(reference: String) async throws -> String {
+        return try await execute(arguments: ["image", "inspect", reference])
+    }
+    
+    // MARK: - Private Helper Methods
+    
+    /// Execute a container command and return output
+    private func execute(arguments: [String]) async throws -> String {
+        return try await withCheckedThrowingContinuation { continuation in
+            let task = Process()
+            
+            guard FileManager.default.fileExists(atPath: cliPath) else {
+                continuation.resume(throwing: AppError(
+                    message: "Container CLI not found at \(cliPath)"
+                ))
+                return
+            }
+            
+            task.executableURL = URL(fileURLWithPath: cliPath)
+            task.arguments = arguments
+            
+            let outputPipe = Pipe()
+            let errorPipe = Pipe()
+            task.standardOutput = outputPipe
+            task.standardError = errorPipe
+            
+            task.terminationHandler = { process in
+                let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
+                let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+                
+                if process.terminationStatus != 0 {
+                    let errorMessage = String(data: errorData, encoding: .utf8) ?? "Unknown error"
+                    continuation.resume(throwing: AppError(message: errorMessage))
+                    return
+                }
+                
+                guard let output = String(data: outputData, encoding: .utf8) else {
+                    continuation.resume(throwing: AppError(message: "Invalid output encoding"))
+                    return
+                }
+                
+                continuation.resume(returning: output)
+            }
+            
+            do {
+                try task.run()
+            } catch {
+                continuation.resume(throwing: AppError(
+                    message: "Failed to execute container command",
+                    underlyingError: error
+                ))
+            }
+        }
+    }
+    
+    /// Parse image list output
+    private func parseImageList(_ output: String) throws -> [ImageInfo] {
+        // Image list output format (table):
+        // NAME              TAG       DIGEST
+        // alpine            latest    b4d299311845...
+        // python            3.11      8f7c45a3c967...
+        
+        let lines = output.components(separatedBy: .newlines)
+            .filter { !$0.isEmpty }
+        
+        guard lines.count > 1 else {
+            // No images (only header or empty)
+            return []
+        }
+        
+        // Skip the header line
+        let dataLines = lines.dropFirst()
+        
+        return dataLines.compactMap { line in
+            let components = line.split(separator: " ", omittingEmptySubsequences: true)
+                .map { String($0) }
+            
+            guard components.count >= 3 else { return nil }
+            
+            let name = components[0]
+            let tag = components[1]
+            let digest = components[2]
+            
+            // Generate a unique ID from name:tag
+            let id = "\(name):\(tag)"
+            
+            return ImageInfo(
+                id: id,
+                name: name,
+                tag: tag,
+                digest: digest,
+                size: nil, // Not provided in list output
+                createdAt: nil
+            )
+        }
+    }
 }
 ```
 
-**Deliverable**: Working image management service
+**Key Implementation Notes:**
+
+1. **CLI Commands for Images:**
+   - `container image list` - List all local images
+   - `container image pull <reference>` - Pull from registry
+   - `container image remove <reference>` - Delete image
+   - `container image tag <source> <target>` - Tag image
+   - `container image inspect <reference>` - Detailed info
+
+2. **Output Parsing:**
+   - Parse table format: NAME, TAG, DIGEST
+   - Extract components using space separation
+   - Handle empty results gracefully
+   - Generate ID from name:tag combination
+
+3. **Size Information:**
+   - The `container image list` command doesn't show size by default
+   - Could parse `container image inspect` for detailed size info
+   - For now, size is nil in the list view
+
+4. **Error Handling:**
+   - Same pattern as ContainerService
+   - Verify CLI exists
+   - Capture stderr for errors
+   - Wrap in AppError with context
+
+**Alternative: Using JSON Output (if available)**
+
+The container CLI may support `--format json` for structured output:
+
+```swift
+// If JSON format is available:
+private func listImagesJSON() async throws -> [ImageInfo] {
+    let output = try await execute(arguments: ["image", "list", "--format", "json"])
+    
+    guard let data = output.data(using: .utf8) else {
+        throw AppError(message: "Invalid output encoding")
+    }
+    
+    struct ImageListResponse: Codable {
+        let name: String
+        let tag: String
+        let digest: String
+        let size: Int64?
+    }
+    
+    let images = try JSONDecoder().decode([ImageListResponse].self, from: data)
+    
+    return images.map { img in
+        ImageInfo(
+            id: "\(img.name):\(img.tag)",
+            name: img.name,
+            tag: img.tag,
+            digest: img.digest,
+            size: img.size,
+            createdAt: nil
+        )
+    }
+}
+```
+
+**Testing the Service:**
+
+```swift
+Task {
+    let service = ImageService()
+    
+    // List images
+    let images = try await service.listImages()
+    print("Found \(images.count) images")
+    
+    // Pull an image
+    try await service.pullImage(reference: "alpine:latest")
+    print("Pulled alpine:latest")
+}
+```
+
+**Deliverable**: Working image management service using CLI commands
 
 ---
 
@@ -522,29 +845,15 @@ final class ContainersViewModel {
     var selectedContainer: ContainerInfo?
     var autoRefreshEnabled = false
     
-    private var containerService: ContainerService?
+    private let containerService = ContainerService()
     private var refreshTask: Task<Void, Never>?
     
-    init() {
-        // Initialize service with kernel path
-        // TODO: Make kernel path configurable
-        do {
-            self.containerService = try ContainerService(
-                kernelPath: "/path/to/kernel/vmlinux"
-            )
-        } catch {
-            self.errorMessage = "Failed to initialize: \(error.localizedDescription)"
-        }
-    }
-    
     func loadContainers() async {
-        guard let service = containerService else { return }
-        
         isLoading = true
         errorMessage = nil
         
         do {
-            containers = try await service.listContainers()
+            containers = try await containerService.listContainers()
         } catch {
             errorMessage = error.localizedDescription
             containers = []
@@ -572,10 +881,8 @@ final class ContainersViewModel {
     }
     
     func stopContainer(_ container: ContainerInfo) async {
-        guard let service = containerService else { return }
-        
         do {
-            try await service.stopContainer(id: container.id)
+            try await containerService.stopContainer(id: container.id)
             await loadContainers()
         } catch {
             errorMessage = "Failed to stop container: \(error.localizedDescription)"
@@ -583,10 +890,8 @@ final class ContainersViewModel {
     }
     
     func killContainer(_ container: ContainerInfo) async {
-        guard let service = containerService else { return }
-        
         do {
-            try await service.killContainer(id: container.id)
+            try await containerService.killContainer(id: container.id)
             await loadContainers()
         } catch {
             errorMessage = "Failed to kill container: \(error.localizedDescription)"
@@ -594,10 +899,8 @@ final class ContainersViewModel {
     }
     
     func removeContainer(_ container: ContainerInfo) async {
-        guard let service = containerService else { return }
-        
         do {
-            try await service.removeContainer(id: container.id)
+            try await containerService.removeContainer(id: container.id)
             await loadContainers()
         } catch {
             errorMessage = "Failed to remove container: \(error.localizedDescription)"
@@ -623,24 +926,14 @@ final class ImagesViewModel {
     var errorMessage: String?
     var selectedImage: ImageInfo?
     
-    private var imageService: ImageService?
-    
-    init() {
-        do {
-            self.imageService = try ImageService()
-        } catch {
-            self.errorMessage = "Failed to initialize: \(error.localizedDescription)"
-        }
-    }
+    private let imageService = ImageService()
     
     func loadImages() async {
-        guard let service = imageService else { return }
-        
         isLoading = true
         errorMessage = nil
         
         do {
-            images = try await service.listImages()
+            images = try await imageService.listImages()
         } catch {
             errorMessage = error.localizedDescription
             images = []
@@ -650,13 +943,22 @@ final class ImagesViewModel {
     }
     
     func removeImage(_ image: ImageInfo) async {
-        guard let service = imageService else { return }
-        
         do {
-            try await service.removeImage(reference: image.displayName)
+            try await imageService.removeImage(reference: image.displayName)
             await loadImages()
         } catch {
             errorMessage = "Failed to remove image: \(error.localizedDescription)"
+        }
+    }
+    
+    func pullImage(reference: String) async {
+        errorMessage = nil
+        
+        do {
+            try await imageService.pullImage(reference: reference)
+            await loadImages()
+        } catch {
+            errorMessage = "Failed to pull image: \(error.localizedDescription)"
         }
     }
 }
@@ -675,20 +977,10 @@ final class LogsViewModel {
     var errorMessage: String?
     var isFollowing = false
     
-    private var containerService: ContainerService?
+    private let containerService = ContainerService()
     private var streamTask: Task<Void, Never>?
     
-    init(kernelPath: String) {
-        do {
-            self.containerService = try ContainerService(kernelPath: kernelPath)
-        } catch {
-            self.errorMessage = "Failed to initialize: \(error.localizedDescription)"
-        }
-    }
-    
     func loadLogs(containerId: String, follow: Bool = false) async {
-        guard let service = containerService else { return }
-        
         isLoading = true
         errorMessage = nil
         isFollowing = follow
@@ -697,7 +989,10 @@ final class LogsViewModel {
         streamTask?.cancel()
         
         do {
-            let logStream = try await service.streamLogs(containerId: containerId)
+            let logStream = try await containerService.streamLogs(
+                containerId: containerId,
+                follow: follow
+            )
             
             streamTask = Task {
                 for await logLine in logStream {
@@ -1079,17 +1374,8 @@ struct LogsView: View {
     let containerId: String
     let containerName: String
     
-    @State private var viewModel: LogsViewModel
+    @State private var viewModel = LogsViewModel()
     @State private var autoScroll = true
-    
-    init(containerId: String, containerName: String) {
-        self.containerId = containerId
-        self.containerName = containerName
-        // TODO: Pass actual kernel path from app configuration
-        self._viewModel = State(wrappedValue: LogsViewModel(
-            kernelPath: "/path/to/kernel/vmlinux"
-        ))
-    }
     
     var body: some View {
         VStack(spacing: 0) {
@@ -1496,41 +1782,62 @@ import Foundation
 struct AppConfiguration {
     static var shared = AppConfiguration()
     
-    var kernelPath: String {
+    var cliPath: String {
         // Check user defaults first
-        if let customPath = UserDefaults.standard.string(forKey: "kernelPath"),
+        if let customPath = UserDefaults.standard.string(forKey: "cliPath"),
            FileManager.default.fileExists(atPath: customPath) {
             return customPath
         }
         
-        // Check standard locations
-        let standardPaths = [
-            "/usr/local/share/container/vmlinux",
-            "/opt/kata/share/kata-containers/vmlinux.container",
-            "~/Library/Application Support/ContainerManager/vmlinux"
-        ]
-        
-        for path in standardPaths {
-            let expanded = NSString(string: path).expandingTildeInPath
-            if FileManager.default.fileExists(atPath: expanded) {
-                return expanded
-            }
+        // Standard installation location
+        let standardPath = "/usr/local/bin/container"
+        if FileManager.default.fileExists(atPath: standardPath) {
+            return standardPath
         }
         
-        // Default - user will need to set this
-        return "/path/to/vmlinux"
+        // Homebrew location
+        let homebrewPath = "/opt/homebrew/bin/container"
+        if FileManager.default.fileExists(atPath: homebrewPath) {
+            return homebrewPath
+        }
+        
+        // Default - user will need to install CLI
+        return "/usr/local/bin/container"
     }
     
     var autoRefreshInterval: TimeInterval {
         UserDefaults.standard.double(forKey: "autoRefreshInterval") ?? 3.0
     }
     
-    func setKernelPath(_ path: String) {
-        UserDefaults.standard.set(path, forKey: "kernelPath")
+    func setCLIPath(_ path: String) {
+        UserDefaults.standard.set(path, forKey: "cliPath")
     }
     
     func setAutoRefreshInterval(_ interval: TimeInterval) {
         UserDefaults.standard.set(interval, forKey: "autoRefreshInterval")
+    }
+    
+    /// Check if container CLI is installed and accessible
+    func isCLIInstalled() -> Bool {
+        FileManager.default.fileExists(atPath: cliPath) &&
+        FileManager.default.isExecutableFile(atPath: cliPath)
+    }
+    
+    /// Check if container system is running
+    func isSystemRunning() async -> Bool {
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: cliPath)
+        task.arguments = ["list"]
+        task.standardOutput = Pipe()
+        task.standardError = Pipe()
+        
+        do {
+            try task.run()
+            task.waitUntilExit()
+            return task.terminationStatus == 0
+        } catch {
+            return false
+        }
     }
 }
 ```
@@ -1648,38 +1955,94 @@ final class ContainerServiceTests: XCTestCase {
 
 ## Critical Implementation Notes
 
-### 1. Verify API Methods
-The Containerization package API may differ from what's shown in this plan. Before implementing each service:
+### 1. Container System Must Be Running
 
-1. Check the official documentation
-2. Look at example code in the `cctl` directory
-3. Verify method signatures and return types
-4. Test incrementally
+Before your app can show any data, the container system must be started:
 
-### 2. Kernel Setup
-You must have a Linux kernel available. Options:
-
-**Option A: Fetch Kata Containers kernel**
 ```bash
-# Download from GitHub releases
-curl -LO https://github.com/kata-containers/kata-containers/releases/download/[VERSION]/kata-containers-[VERSION]-[ARCH].tar.xz
-tar -xf kata-containers-[VERSION]-[ARCH].tar.xz
-# Copy vmlinux.container to a known location
+container system start
 ```
 
-**Option B: Build custom kernel**
-Follow instructions in the containerization repo's `kernel/` directory
+Without this, all commands will fail with "XPC connection error: Connection invalid".
 
-### 3. Testing Strategy
+**Add a startup check in your app:**
+
+```swift
+// In App launch or ContentView.onAppear
+Task {
+    let config = AppConfiguration.shared
+    
+    if !config.isCLIInstalled() {
+        // Show alert: "Container CLI not installed"
+        return
+    }
+    
+    if !await config.isSystemRunning() {
+        // Show alert: "Please run 'container system start' in Terminal"
+        return
+    }
+}
+```
+
+### 2. CLI Output Parsing
+
+The container CLI outputs text tables. Your parsing code needs to be robust:
+
+**Example output:**
+```
+CONTAINER ID   NAME        IMAGE           STATUS
+abc123def456   my-app      alpine:latest   Up 5 minutes
+```
+
+**Parsing considerations:**
+- Header line should be skipped
+- Columns are space-separated
+- STATUS can contain multiple words
+- Empty results are valid (no containers)
+- Handle errors gracefully
+
+### 3. JSON Format Alternative
+
+Check if the container CLI supports `--format json` for easier parsing:
+
+```bash
+container list --format json
+container image list --format json
+```
+
+If available, update your services to use JSON parsing instead of text parsing.
+
+### 4. Testing Strategy
+
 Start with minimal functionality:
-1. Initialize ContainerManager successfully
-2. List containers (even if empty)
-3. Add UI for list
-4. Add one action (stop/kill)
-5. Gradually add more features
+1. Verify CLI is installed and accessible
+2. Execute `container --version` successfully
+3. List containers (even if empty)
+4. Add UI for the list
+5. Add one action (stop/kill)
+6. Gradually add more features
 
-### 4. Error Handling
-Every Containerization API call should be wrapped in try/catch and provide helpful error messages to users.
+### 5. Error Handling
+
+Every CLI command should be wrapped in proper error handling:
+
+```swift
+do {
+    let output = try await execute(arguments: ["list"])
+    // Parse and return
+} catch {
+    // Show user-friendly error
+    throw AppError(message: "Failed to list containers: \(error.localizedDescription)")
+}
+```
+
+### 6. Performance Considerations
+
+- CLI execution has overhead compared to direct APIs
+- Cache results when appropriate
+- Don't poll too frequently (3-5 second intervals)
+- Use streaming for logs instead of repeated polling
+- Consider debouncing refresh operations
 
 ---
 
@@ -1766,20 +2129,42 @@ After MVP is complete, consider adding:
 
 ### Common Issues
 
-**Issue**: Cannot find Containerization package
-- **Solution**: Ensure you're using Xcode 26 beta and macOS 26 beta
+**Issue**: App shows no containers or images (THIS WAS YOUR PROBLEM!)
+- **Cause**: The Containerization framework is for BUILDING container systems, not viewing containers created by the `container` CLI
+- **Solution**: Use the CLI wrapper approach in this updated plan
+- **Verification**: 
+  ```bash
+  # In Terminal, verify you have containers/images
+  container list
+  container image list
+  ```
+- **Then**: Make sure your app executes these same commands and parses the output
 
-**Issue**: Kernel not found
-- **Solution**: Download Kata Containers kernel or build custom kernel per docs
+**Issue**: "XPC connection error: Connection invalid"
+- **Cause**: Container system services aren't running
+- **Solution**: Run `container system start` in Terminal before launching your app
+- **Prevention**: Add a system check in your app that alerts users to start the system
 
-**Issue**: App crashes on launch
-- **Solution**: Check kernel path is correct and file exists
-
-**Issue**: Containers list is empty
-- **Solution**: Ensure containers are actually running (test with `container` CLI)
+**Issue**: "Container CLI not found"
+- **Cause**: CLI isn't installed or isn't at expected path
+- **Solution**: Install from https://github.com/apple/container/releases
+- **Alternative**: Check `/opt/homebrew/bin/container` if installed via Homebrew
 
 **Issue**: Permission denied errors
-- **Solution**: Check app entitlements and sandboxing settings
+- **Cause**: App Sandbox is preventing CLI execution
+- **Solution**: Disable App Sandbox in app entitlements
+
+**Issue**: Containers list is empty but containers exist
+- **Cause**: Parsing logic is incorrect or CLI output format changed
+- **Solution**: Print raw CLI output to debug:
+  ```swift
+  let output = try await execute(arguments: ["list"])
+  print("Raw output:", output)
+  ```
+
+**Issue**: App crashes on launch
+- **Cause**: Service initialization fails
+- **Solution**: Remove any initialization errors and use lazy initialization
 
 ---
 
@@ -1798,13 +2183,77 @@ Your MVP is complete when:
 
 ---
 
+## Understanding the Architecture: Why CLI Wrapper vs Direct APIs
+
+### The Two Approaches Explained
+
+**Approach 1: Use Containerization Framework Directly (Low-level)**
+- Build your OWN container system from scratch
+- Manage your own storage, networking, VMs
+- Create your own container runtime
+- **Use case**: Building a Docker alternative or custom container solution
+- **Complexity**: High - you're building everything
+
+**Approach 2: Wrap the Container CLI Tool (High-level)** ← **This plan uses this**
+- Use Apple's `container` tool that already exists
+- View and manage containers/images created with `container run`, `container image pull`, etc.
+- Communicate through CLI commands or XPC services
+- **Use case**: GUI for existing container CLI (like Docker Desktop is to Docker)
+- **Complexity**: Medium - you're wrapping existing functionality
+
+### Why Your Images/Containers Weren't Showing
+
+When you used the Containerization framework directly, you were creating an entirely separate container system. The containers and images created by the `container` CLI tool live in a different storage location managed by the CLI's XPC services.
+
+Think of it like this:
+- **container CLI** = Manages containers in `/Users/you/Library/Application Support/com.apple.container/`
+- **Your direct Containerization app** = Would manage containers in its own storage location
+
+They're separate systems! That's why your app showed no images or containers - it was looking in the wrong place.
+
+### The Fix
+
+This updated plan uses the CLI wrapper approach, which means:
+1. Your app executes `container list` and `container image list` commands
+2. These commands return data from the same storage the CLI uses
+3. You see all the containers and images you created with `container run` and `container image pull`
+4. Your GUI manages the same containers that the CLI manages
+
+### When to Use Each Approach
+
+**Use CLI Wrapper (this plan) when:**
+- You want a GUI for the existing `container` tool
+- You want to manage containers created via CLI
+- You want faster development with less complexity
+- You're building a user-facing container management app
+
+**Use Containerization Framework Directly when:**
+- You're building a completely new container runtime
+- You need full control over VM creation and management
+- You're building infrastructure/platform tools
+- You don't need compatibility with the `container` CLI
+
+---
+
 ## Next Steps
 
-1. **Set up Xcode project** following Phase 1
-2. **Add Containerization dependency**
-3. **Explore the API** by examining cctl examples
-4. **Build incrementally** starting with models and services
-5. **Test frequently** to catch issues early
-6. **Iterate on UI/UX** based on usage
+1. **Verify container CLI is working**
+   ```bash
+   container system start
+   container run -it alpine sh
+   container list  # Should show your running container
+   ```
+
+2. **Set up Xcode project** following Phase 1
+
+3. **Build incrementally** starting with CLI verification
+
+4. **Test the parsing** by printing raw CLI output
+
+5. **Add UI** once data is loading correctly
+
+6. **Iterate on features** once core functionality works
 
 Good luck building your Container Manager app! 🚀
+
+The updated approach should now show your containers and images correctly.
