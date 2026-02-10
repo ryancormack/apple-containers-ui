@@ -83,8 +83,8 @@ struct VolumesListView: View {
             }
             .width(min: 100, ideal: 150)
             
-            TableColumn("Mountpoint") { volume in
-                Text(volume.mountpoint ?? "-")
+            TableColumn("Source") { volume in
+                Text(volume.source ?? "-")
                     .foregroundStyle(.tertiary)
                     .font(.system(.body, design: .monospaced))
             }

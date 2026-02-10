@@ -80,26 +80,33 @@ struct LogsView: View {
     }
     
     private var logContent: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(viewModel.logs.enumerated()), id: \.offset) { index, line in
-                    HStack(alignment: .top, spacing: 12) {
-                        Text("\(index + 1)")
-                            .foregroundStyle(.tertiary)
-                            .font(.system(.caption, design: .monospaced))
-                            .frame(width: 50, alignment: .trailing)
-                        
-                        Text(line)
-                            .font(.system(.body, design: .monospaced))
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(viewModel.logs.enumerated()), id: \.offset) { index, line in
+                        HStack(alignment: .top, spacing: 12) {
+                            Text("\(index + 1)")
+                                .foregroundStyle(.tertiary)
+                                .font(.system(.caption, design: .monospaced))
+                                .frame(width: 50, alignment: .trailing)
+                            
+                            Text(line)
+                                .font(.system(.body, design: .monospaced))
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .padding(.horizontal)
+                        .padding(.vertical, 2)
+                        .id(index)
                     }
-                    .padding(.horizontal)
-                    .padding(.vertical, 2)
-                    .id(index)
                 }
+                .padding(.vertical, 8)
             }
-            .padding(.vertical, 8)
+            .task(id: viewModel.logs.count) {
+                guard autoScroll, let last = viewModel.logs.indices.last else { return }
+                try? await Task.sleep(for: .milliseconds(50))
+                proxy.scrollTo(last, anchor: .bottom)
+            }
         }
     }
 }

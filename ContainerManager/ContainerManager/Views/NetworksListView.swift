@@ -83,8 +83,8 @@ struct NetworksListView: View {
             }
             .width(min: 150, ideal: 200)
             
-            TableColumn("Gateway") { network in
-                Text(network.gateway ?? "-")
+            TableColumn("IPv6 Subnet") { network in
+                Text(network.subnetV6 ?? "-")
                     .foregroundStyle(.secondary)
                     .font(.system(.body, design: .monospaced))
             }

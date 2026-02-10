@@ -18,7 +18,7 @@ final class SystemLogsViewModel {
         
         streamTask = Task {
             do {
-                let stream = try await containerService.streamSystemLogs(follow: followEnabled)
+                let stream = try containerService.streamSystemLogs(follow: followEnabled)
                 for await line in stream {
                     if !Task.isCancelled {
                         logs.append(line)

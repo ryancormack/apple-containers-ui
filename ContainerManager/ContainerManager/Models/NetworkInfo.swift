@@ -1,10 +1,10 @@
 import Foundation
 
 struct NetworkInfo: Identifiable, Hashable {
-    let id: String
+    var id: String { name }
     let name: String
     let subnet: String?
-    let gateway: String?
+    let subnetV6: String?
     
     var displayName: String { name }
 }

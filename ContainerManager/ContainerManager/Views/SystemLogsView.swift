@@ -97,12 +97,10 @@ struct SystemLogsView: View {
                 }
                 .padding(.vertical, 8)
             }
-            .onChange(of: viewModel.logs.count) { _, _ in
-                if autoScroll, let lastIndex = viewModel.logs.indices.last {
-                    withAnimation {
-                        proxy.scrollTo(lastIndex, anchor: .bottom)
-                    }
-                }
+            .task(id: viewModel.logs.count) {
+                guard autoScroll, let lastIndex = viewModel.logs.indices.last else { return }
+                try? await Task.sleep(for: .milliseconds(50))
+                proxy.scrollTo(lastIndex, anchor: .bottom)
             }
         }
     }

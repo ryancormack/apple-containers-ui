@@ -23,7 +23,8 @@ struct AppConfiguration {
     }
     
     var autoRefreshInterval: TimeInterval {
-        UserDefaults.standard.double(forKey: "autoRefreshInterval") ?? 3.0
+        let value = UserDefaults.standard.double(forKey: "autoRefreshInterval")
+        return value > 0 ? value : 3.0
     }
     
     func setCLIPath(_ path: String) {

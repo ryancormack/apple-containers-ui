@@ -33,7 +33,11 @@ final class ContainersViewModel {
         errorMessage = nil
         
         do {
-            containers = try await containerService.listContainers(showAll: showAllContainers)
+            var result = try await containerService.listContainers(showAll: showAllContainers)
+            if !showAllContainers {
+                result = result.filter { $0.state == .running }
+            }
+            containers = result
         } catch {
             errorMessage = error.localizedDescription
             containers = []
@@ -65,7 +69,7 @@ final class ContainersViewModel {
             try await containerService.stopContainer(id: container.id)
             await loadContainers()
         } catch {
-            errorMessage = "Failed to stop container: \(error.localizedDescription)"
+            errorMessage = error.localizedDescription
         }
     }
     
@@ -74,7 +78,7 @@ final class ContainersViewModel {
             try await containerService.killContainer(id: container.id)
             await loadContainers()
         } catch {
-            errorMessage = "Failed to kill container: \(error.localizedDescription)"
+            errorMessage = error.localizedDescription
         }
     }
     
@@ -83,7 +87,7 @@ final class ContainersViewModel {
             try await containerService.removeContainer(id: container.id)
             await loadContainers()
         } catch {
-            errorMessage = "Failed to remove container: \(error.localizedDescription)"
+            errorMessage = error.localizedDescription
         }
     }
     
@@ -92,6 +96,6 @@ final class ContainersViewModel {
     }
     
     deinit {
-        stopAutoRefresh()
+        refreshTask?.cancel()
     }
 }

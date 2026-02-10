@@ -20,7 +20,7 @@ final class LogsViewModel {
         
         streamTask = Task {
             do {
-                let logStream = try await containerService.streamLogs(containerId: containerId, follow: followEnabled)
+                let logStream = try containerService.streamLogs(containerId: containerId, follow: followEnabled)
                 
                 for await logLine in logStream {
                     if Task.isCancelled { break }

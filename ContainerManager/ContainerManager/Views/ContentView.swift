@@ -76,19 +76,19 @@ struct ContentView: View {
             _ = try await service.getSystemStatus()
             systemStatus = .running
         } catch {
-            systemStatus = .error
+            systemStatus = .error(error.localizedDescription)
         }
     }
 }
 
 enum SystemStatus {
-    case unknown, running, error
+    case unknown, running, error(String)
     
     var label: String {
         switch self {
         case .unknown: return "Checking..."
         case .running: return "System Ready"
-        case .error: return "System Error"
+        case .error(let msg): return "Error: \(msg)"
         }
     }
     
