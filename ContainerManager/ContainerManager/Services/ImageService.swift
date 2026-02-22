@@ -6,10 +6,39 @@ struct ImageService {
     func listImages() async throws -> [ImageInfo] {
         do {
             let output = try await cli.execute(arguments: ["image", "list", "--format", "json"])
-            return try parseImageListJSON(output)
+            var images = try parseImageListJSON(output)
+            
+            // Fetch real sizes from inspect (arm64 variant) in parallel
+            await withTaskGroup(of: (Int, Int64?).self) { group in
+                for (index, image) in images.enumerated() {
+                    group.addTask {
+                        let size = try? await self.fetchArm64Size(reference: image.id)
+                        return (index, size)
+                    }
+                }
+                for await (index, size) in group {
+                    images[index] = images[index].withSize(size)
+                }
+            }
+            
+            return images
         } catch {
             throw AppError(message: "Failed to list images", underlyingError: error)
         }
+    }
+    
+    private func fetchArm64Size(reference: String) async throws -> Int64? {
+        let output = try await cli.execute(arguments: ["image", "inspect", reference])
+        guard let data = output.data(using: .utf8) else { return nil }
+        
+        struct Platform: Codable { let architecture: String?; let os: String? }
+        struct Variant: Codable { let size: Int64; let platform: Platform? }
+        struct InspectResult: Codable { let variants: [Variant]? }
+        
+        let results = try JSONDecoder().decode([InspectResult].self, from: data)
+        return results.first?.variants?
+            .first { $0.platform?.architecture == "arm64" && $0.platform?.os == "linux" }?
+            .size
     }
     
     func inspectImage(reference: String) async throws -> String {
@@ -90,12 +119,14 @@ struct ImageService {
                 tag = "latest"
             }
             
+            // descriptor.size is the OCI index manifest size, not the image size.
+            // The real size lives in inspect output per-platform variant.
             return ImageInfo(
                 id: json.reference,
                 name: name,
                 tag: tag,
                 digest: json.descriptor.digest,
-                size: json.descriptor.size,
+                size: nil,
                 createdAt: nil
             )
         }

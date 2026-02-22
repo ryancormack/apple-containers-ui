@@ -12,6 +12,10 @@ struct ImageInfo: Identifiable, Hashable {
         "\(name):\(tag)"
     }
     
+    func withSize(_ size: Int64?) -> ImageInfo {
+        ImageInfo(id: id, name: name, tag: tag, digest: digest, size: size, createdAt: createdAt)
+    }
+    
     func hash(into hasher: inout Hasher) {
         hasher.combine(id)
     }
