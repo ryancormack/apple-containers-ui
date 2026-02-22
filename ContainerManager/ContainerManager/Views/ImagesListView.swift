@@ -10,6 +10,9 @@ struct ImagesListView: View {
     @State private var imageToRemove: ImageInfo?
     @State private var imageToRun: ImageInfo?
     @State private var containerName = ""
+    @State private var showingPullDialog = false
+    @State private var pullImageReference = ""
+    @State private var showingCopiedNotice = false
     
     var filteredImages: [ImageInfo] {
         if searchText.isEmpty {
@@ -25,6 +28,14 @@ struct ImagesListView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
+                if viewModel.isPulling {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Pulling image…")
+                        .foregroundStyle(.secondary)
+                        .font(.caption)
+                }
+                
                 Spacer()
                 
                 Text("\(filteredImages.count) image(s)")
@@ -56,9 +67,30 @@ struct ImagesListView: View {
                 }
             }
         }
+        .overlay {
+            if showingCopiedNotice {
+                Text("Command copied to clipboard")
+                    .padding(8)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                    .transition(.opacity)
+                    .onAppear {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                            withAnimation { showingCopiedNotice = false }
+                        }
+                    }
+            }
+        }
         .searchable(text: $searchText, prompt: "Search images...")
         .navigationTitle("Images")
         .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    showingPullDialog = true
+                } label: {
+                    Label("Pull Image", systemImage: "arrow.down.circle")
+                }
+                .disabled(viewModel.isPulling)
+            }
             ToolbarItem(placement: .primaryAction) {
                 Button {
                     Task { await viewModel.loadImages() }
@@ -81,6 +113,20 @@ struct ImagesListView: View {
         }
         .sheet(isPresented: $showingInspect) {
             InspectView(title: "Image Inspect", jsonData: inspectData)
+        }
+        .alert("Pull Image", isPresented: $showingPullDialog) {
+            TextField("Image reference (e.g. alpine:latest)", text: $pullImageReference)
+            Button("Pull") {
+                let ref = pullImageReference
+                pullImageReference = ""
+                Task { await viewModel.pullImage(reference: ref) }
+            }
+            .disabled(pullImageReference.trimmingCharacters(in: .whitespaces).isEmpty)
+            Button("Cancel", role: .cancel) {
+                pullImageReference = ""
+            }
+        } message: {
+            Text("Enter the image name and tag to pull from a registry.")
         }
         .alert("Run Container", isPresented: $showingRunDialog, presenting: imageToRun) { image in
             TextField("Container name (optional)", text: $containerName)
@@ -130,6 +176,15 @@ struct ImagesListView: View {
             
             TableColumn("Actions") { image in
                 HStack(spacing: 4) {
+                    Button {
+                        viewModel.copyInteractiveRunCommand(for: image)
+                        showingCopiedNotice = true
+                    } label: {
+                        Image(systemName: "terminal.fill")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Copy interactive run command")
+                    
                     Button {
                         imageToRun = image
                         showingRunDialog = true
