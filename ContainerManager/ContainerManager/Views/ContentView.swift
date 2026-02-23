@@ -46,6 +46,8 @@ struct ContentView: View {
                         NetworksListView()
                     case .systemLogs:
                         SystemLogsView()
+                    case .settings:
+                        SettingsView()
                     case .none:
                         placeholderView
                     }
@@ -107,6 +109,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     case volumes
     case networks
     case systemLogs
+    case settings
     
     var id: String { rawValue }
     
@@ -117,6 +120,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .volumes: return "Volumes"
         case .networks: return "Networks"
         case .systemLogs: return "System Logs"
+        case .settings: return "Settings"
         }
     }
     
@@ -127,6 +131,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .volumes: return "externaldrive"
         case .networks: return "network"
         case .systemLogs: return "doc.text"
+        case .settings: return "gear"
         }
     }
 }

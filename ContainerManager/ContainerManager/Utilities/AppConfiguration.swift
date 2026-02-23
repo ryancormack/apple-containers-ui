@@ -3,6 +3,43 @@ import Foundation
 struct AppConfiguration {
     static var shared = AppConfiguration()
     
+    private static let mountPathsKey = "mountPaths"
+    
+    var mountPaths: [MountPath] {
+        get {
+            guard let data = UserDefaults.standard.data(forKey: Self.mountPathsKey),
+                  let paths = try? JSONDecoder().decode([MountPath].self, from: data) else {
+                return []
+            }
+            return paths
+        }
+        set {
+            if let data = try? JSONEncoder().encode(newValue) {
+                UserDefaults.standard.set(data, forKey: Self.mountPathsKey)
+            }
+        }
+    }
+    
+    mutating func addMountPath(_ mountPath: MountPath) {
+        var paths = mountPaths
+        paths.append(mountPath)
+        mountPaths = paths
+    }
+    
+    mutating func removeMountPath(id: UUID) {
+        var paths = mountPaths
+        paths.removeAll { $0.id == id }
+        mountPaths = paths
+    }
+    
+    mutating func updateMountPath(_ mountPath: MountPath) {
+        var paths = mountPaths
+        if let index = paths.firstIndex(where: { $0.id == mountPath.id }) {
+            paths[index] = mountPath
+            mountPaths = paths
+        }
+    }
+    
     var cliPath: String {
         if let customPath = UserDefaults.standard.string(forKey: "cliPath"),
            FileManager.default.fileExists(atPath: customPath) {
