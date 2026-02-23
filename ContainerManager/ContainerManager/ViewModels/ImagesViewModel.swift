@@ -60,6 +60,30 @@ final class ImagesViewModel {
         NSPasteboard.general.setString(command, forType: .string)
     }
     
+    func buildRunCommand(for image: ImageInfo, name: String?, selectedPaths: [MountPath]) -> String {
+        var components: [String] = [AppConfiguration.shared.cliPath, "run", "-it"]
+        
+        if let containerName = name, !containerName.trimmingCharacters(in: .whitespaces).isEmpty {
+            components.append("--name")
+            components.append(containerName.trimmingCharacters(in: .whitespaces))
+        }
+        
+        for mountPath in selectedPaths {
+            components.append("-v")
+            components.append("\"\(mountPath.path)\":\"\(mountPath.path)\"")
+        }
+        
+        components.append(image.id)
+        components.append("/bin/sh")
+        
+        return components.joined(separator: " ")
+    }
+    
+    func copyCommand(_ command: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(command, forType: .string)
+    }
+    
     func runImage(_ image: ImageInfo, name: String?) async {
         do {
             try await imageService.runImage(reference: image.id, name: name)

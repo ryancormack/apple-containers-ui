@@ -13,6 +13,8 @@ struct ImagesListView: View {
     @State private var showingPullDialog = false
     @State private var pullImageReference = ""
     @State private var showingCopiedNotice = false
+    @State private var showingCopyCommandSheet = false
+    @State private var imageToCopy: ImageInfo?
     
     var filteredImages: [ImageInfo] {
         if searchText.isEmpty {
@@ -114,6 +116,23 @@ struct ImagesListView: View {
         .sheet(isPresented: $showingInspect) {
             InspectView(title: "Image Inspect", jsonData: inspectData)
         }
+        .sheet(isPresented: $showingCopyCommandSheet) {
+            if let image = imageToCopy {
+                CopyRunCommandView(
+                    image: image,
+                    onCopy: { command in
+                        viewModel.copyCommand(command)
+                        showingCopyCommandSheet = false
+                        imageToCopy = nil
+                        withAnimation { showingCopiedNotice = true }
+                    },
+                    onCancel: {
+                        showingCopyCommandSheet = false
+                        imageToCopy = nil
+                    }
+                )
+            }
+        }
         .alert("Pull Image", isPresented: $showingPullDialog) {
             TextField("Image reference (e.g. alpine:latest)", text: $pullImageReference)
             Button("Pull") {
@@ -177,8 +196,8 @@ struct ImagesListView: View {
             TableColumn("Actions") { image in
                 HStack(spacing: 4) {
                     Button {
-                        viewModel.copyInteractiveRunCommand(for: image)
-                        showingCopiedNotice = true
+                        imageToCopy = image
+                        showingCopyCommandSheet = true
                     } label: {
                         Image(systemName: "terminal.fill")
                     }
