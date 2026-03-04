@@ -12,6 +12,7 @@ struct ImagesListView: View {
     @State private var containerName = ""
     @State private var showingPullDialog = false
     @State private var pullImageReference = ""
+    @State private var imageForConfig: ImageInfo?
     @State private var showingCopiedNotice = false
     
     var filteredImages: [ImageInfo] {
@@ -90,6 +91,7 @@ struct ImagesListView: View {
                     Label("Pull Image", systemImage: "arrow.down.circle")
                 }
                 .disabled(viewModel.isPulling)
+                .help("Pull an image from a registry")
             }
             ToolbarItem(placement: .primaryAction) {
                 Button {
@@ -98,6 +100,7 @@ struct ImagesListView: View {
                     Label("Refresh", systemImage: "arrow.clockwise")
                 }
                 .disabled(viewModel.isLoading)
+                .help("Refresh image list")
             }
         }
         .task {
@@ -113,6 +116,12 @@ struct ImagesListView: View {
         }
         .sheet(isPresented: $showingInspect) {
             InspectView(title: "Image Inspect", jsonData: inspectData)
+        }
+        .sheet(item: $imageForConfig) { image in
+            RunConfigurationSheet(image: image) { config in
+                viewModel.copyInteractiveRunCommand(for: image, config: config)
+                withAnimation { showingCopiedNotice = true }
+            }
         }
         .alert("Pull Image", isPresented: $showingPullDialog) {
             TextField("Image reference (e.g. alpine:latest)", text: $pullImageReference)
@@ -177,13 +186,12 @@ struct ImagesListView: View {
             TableColumn("Actions") { image in
                 HStack(spacing: 4) {
                     Button {
-                        viewModel.copyInteractiveRunCommand(for: image)
-                        showingCopiedNotice = true
+                        imageForConfig = image
                     } label: {
                         Image(systemName: "terminal.fill")
                     }
                     .buttonStyle(.borderless)
-                    .help("Copy interactive run command")
+                    .help("Configure and copy interactive run command")
                     
                     Button {
                         imageToRun = image
