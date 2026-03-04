@@ -59,6 +59,7 @@ struct VolumesListView: View {
                     Label("Refresh", systemImage: "arrow.clockwise")
                 }
                 .disabled(viewModel.isLoading)
+                .help("Refresh volume list")
             }
         }
         .task {

@@ -13,6 +13,7 @@ struct LogsView: View {
                 Toggle(isOn: $viewModel.followEnabled) {
                     Label("Follow", systemImage: "arrow.down.circle")
                 }
+                .help("Follow new log entries as they appear")
                 .onChange(of: viewModel.followEnabled) { _, enabled in
                     if enabled && viewModel.isStreaming {
                         Task { await viewModel.startStreaming(containerId: containerId) }
@@ -22,6 +23,7 @@ struct LogsView: View {
                 Toggle(isOn: $autoScroll) {
                     Label("Auto-scroll", systemImage: "arrow.down.to.line")
                 }
+                .help("Automatically scroll to new log entries")
                 
                 Spacer()
                 
@@ -31,6 +33,7 @@ struct LogsView: View {
                     Label("Clear", systemImage: "trash")
                 }
                 .disabled(viewModel.logs.isEmpty)
+                .help("Clear displayed logs")
                 
                 Text("\(viewModel.logs.count) lines")
                     .foregroundStyle(.secondary)
@@ -67,6 +70,7 @@ struct LogsView: View {
                     Label("Refresh", systemImage: "arrow.clockwise")
                 }
                 .disabled(viewModel.isStreaming)
+                .help("Refresh logs")
             }
         }
         .onAppear {

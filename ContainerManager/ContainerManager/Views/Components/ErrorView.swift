@@ -27,6 +27,7 @@ struct ErrorView: View {
                 retry()
             }
             .buttonStyle(.borderedProminent)
+            .help("Retry the failed operation")
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(40)
