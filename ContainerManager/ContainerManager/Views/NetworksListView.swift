@@ -58,6 +58,7 @@ struct NetworksListView: View {
                     Label("Refresh", systemImage: "arrow.clockwise")
                 }
                 .disabled(viewModel.isLoading)
+                .help("Refresh network list")
             }
         }
         .task {

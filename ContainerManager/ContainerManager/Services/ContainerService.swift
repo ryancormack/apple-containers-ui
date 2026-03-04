@@ -35,6 +35,14 @@ struct ContainerService {
         }
     }
     
+    func startContainer(id: String) async throws {
+        do {
+            _ = try await cli.execute(arguments: ["start", id])
+        } catch {
+            throw AppError(message: "Failed to start container '\(id)'", underlyingError: error)
+        }
+    }
+    
     func killContainer(id: String) async throws {
         do {
             _ = try await cli.execute(arguments: ["kill", id])
@@ -167,18 +175,22 @@ struct ContainerService {
         }
         
         struct NetworkJSON: Codable {
-            let name: String
-            let subnet: String?
-            let subnetV6: String?
+            let id: String
+            let status: Status?
+            
+            struct Status: Codable {
+                let ipv4Subnet: String?
+                let ipv6Subnet: String?
+            }
         }
         
         let networks = try JSONDecoder().decode([NetworkJSON].self, from: data)
         
         return networks.map { json in
             NetworkInfo(
-                name: json.name,
-                subnet: json.subnet,
-                subnetV6: json.subnetV6
+                name: json.id,
+                subnet: json.status?.ipv4Subnet,
+                subnetV6: json.status?.ipv6Subnet
             )
         }
     }

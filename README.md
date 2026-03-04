@@ -15,11 +15,11 @@ The app wraps the `container` CLI rather than using the low-level [Containerizat
 
 ## Features
 
-- **Containers** — List, stop, kill, remove, and inspect containers. Auto-refresh to watch state changes. Toggle between running-only and all containers.
-- **Images** — Browse local images, run new containers from them, inspect metadata, and delete unused images.
-- **Volumes** — View and inspect container volumes.
-- **Networks** — View and inspect container networks.
-- **Logs** — Stream container logs in real-time with follow mode, auto-scroll, and line numbers.
+- **Containers** — List, start, stop, kill, remove, and inspect containers. Auto-refresh to watch state changes. Toggle between running-only and all containers. [Read more →](docs/containers.md)
+- **Images** — Browse local images, pull from registries, run new containers, inspect metadata, and delete unused images. [Read more →](docs/images.md)
+- **Run Configuration** — Configure interactive container runs with workspace folder mounts, saved quick mounts for credentials (AWS, Claude Code, SSH, Git), and environment variables. Copy a ready-to-paste CLI command. [Read more →](docs/run-configuration.md)
+- **Volumes & Networks** — View and inspect container volumes and networks. [Read more →](docs/volumes-and-networks.md)
+- **Logs** — Stream container logs in real-time with follow mode, auto-scroll, and line numbers. [Read more →](docs/containers.md#logs)
 - **System Status** — At-a-glance indicator showing whether the container system is running.
 
 ## Prerequisites

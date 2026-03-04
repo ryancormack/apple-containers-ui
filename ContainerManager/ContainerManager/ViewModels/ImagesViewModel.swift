@@ -54,10 +54,25 @@ final class ImagesViewModel {
         isPulling = false
     }
     
-    func copyInteractiveRunCommand(for image: ImageInfo) {
-        let command = "\(AppConfiguration.shared.cliPath) run -it \(image.id) /bin/sh"
+    func copyInteractiveRunCommand(for image: ImageInfo, config: RunConfiguration? = nil) {
+        var parts = [AppConfiguration.shared.cliPath, "run", "-it"]
+        
+        if let config {
+            for mount in config.mounts {
+                parts.append("-v")
+                parts.append("\(mount.hostPath):\(mount.containerPath)")
+            }
+            for env in config.envVars where !env.key.isEmpty {
+                parts.append("-e")
+                parts.append(env.inheritFromHost ? env.key : "\(env.key)=\(env.value)")
+            }
+        }
+        
+        parts.append(image.id)
+        parts.append("/bin/sh")
+        
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(command, forType: .string)
+        NSPasteboard.general.setString(parts.joined(separator: " "), forType: .string)
     }
     
     func runImage(_ image: ImageInfo, name: String?) async {
