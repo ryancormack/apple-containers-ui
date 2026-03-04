@@ -20,21 +20,27 @@ struct CLIExecutor {
         
         try process.run()
         
-        // Read pipe data BEFORE waiting for termination to avoid deadlock
-        let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
-        let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+        // Read both pipes concurrently to avoid deadlock when output exceeds pipe buffer
+        async let outputData = Task.detached {
+            outputPipe.fileHandleForReading.readDataToEndOfFile()
+        }.value
+        async let errorData = Task.detached {
+            errorPipe.fileHandleForReading.readDataToEndOfFile()
+        }.value
+        
+        let (output, error) = await (try outputData, try errorData)
         
         process.waitUntilExit()
         
         if process.terminationStatus != 0 {
-            let errorMessage = String(data: errorData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "Unknown error"
+            let errorMessage = String(data: error, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "Unknown error"
             throw AppError(message: errorMessage)
         }
         
-        guard let output = String(data: outputData, encoding: .utf8) else {
+        guard let result = String(data: output, encoding: .utf8) else {
             throw AppError(message: "Invalid output encoding")
         }
-        return output
+        return result
     }
     
     func executeStreaming(arguments: [String]) throws -> AsyncStream<String> {
