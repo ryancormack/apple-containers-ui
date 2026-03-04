@@ -27,6 +27,7 @@ struct ContainersListView: View {
                 Toggle(isOn: $viewModel.autoRefreshEnabled) {
                     Label("Auto-refresh", systemImage: "arrow.clockwise")
                 }
+                .help("Automatically refresh container list")
                 .onChange(of: viewModel.autoRefreshEnabled) { _, enabled in
                     if enabled {
                         viewModel.startAutoRefresh()
@@ -38,6 +39,7 @@ struct ContainersListView: View {
                 Toggle(isOn: $viewModel.showAllContainers) {
                     Label("Show stopped", systemImage: "eye")
                 }
+                .help("Show stopped containers")
                 .onChange(of: viewModel.showAllContainers) { _, _ in
                     Task { await viewModel.loadContainers() }
                 }
@@ -83,6 +85,7 @@ struct ContainersListView: View {
                     Label("Refresh", systemImage: "arrow.clockwise")
                 }
                 .disabled(viewModel.isLoading)
+                .help("Refresh container list")
             }
         }
         .task {
@@ -169,6 +172,17 @@ struct ContainersListView: View {
                     }
                     .buttonStyle(.borderless)
                     .help("Inspect container")
+                    
+                    if container.state == .stopped {
+                        Button {
+                            Task { await viewModel.startContainer(container) }
+                        } label: {
+                            Image(systemName: "play.fill")
+                        }
+                        .buttonStyle(.borderless)
+                        .foregroundStyle(.green)
+                        .help("Start container")
+                    }
                     
                     Button {
                         containerToAct = container

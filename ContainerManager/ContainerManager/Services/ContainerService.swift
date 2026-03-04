@@ -35,6 +35,14 @@ struct ContainerService {
         }
     }
     
+    func startContainer(id: String) async throws {
+        do {
+            _ = try await cli.execute(arguments: ["start", id])
+        } catch {
+            throw AppError(message: "Failed to start container '\(id)'", underlyingError: error)
+        }
+    }
+    
     func killContainer(id: String) async throws {
         do {
             _ = try await cli.execute(arguments: ["kill", id])

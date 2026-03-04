@@ -73,6 +73,15 @@ final class ContainersViewModel {
         }
     }
     
+    func startContainer(_ container: ContainerInfo) async {
+        do {
+            try await containerService.startContainer(id: container.id)
+            await loadContainers()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+    
     func killContainer(_ container: ContainerInfo) async {
         do {
             try await containerService.killContainer(id: container.id)
