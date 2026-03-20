@@ -1,6 +1,6 @@
 # Apple Containers UI - Feature Tracking
 
-This document tracks the implementation status of all [Apple Containers](https://github.com/apple/container-manager) CLI features in the **Containers UI** macOS app. It serves as a reference for contributors looking to understand what is already built and what remains to be implemented.
+This document tracks the implementation status of all [Apple Containers](https://github.com/apple/container) CLI features in the **Containers UI** macOS app. It serves as a reference for contributors looking to understand what is already built and what remains to be implemented.
 
 ## Summary
 
