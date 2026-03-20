@@ -14,6 +14,8 @@ struct ImagesListView: View {
     @State private var pullImageReference = ""
     @State private var imageForConfig: ImageInfo?
     @State private var showingCopiedNotice = false
+    @State private var showingPruneConfirmation = false
+    @State private var showingPruneNotice = false
     
     var filteredImages: [ImageInfo] {
         if searchText.isEmpty {
@@ -80,10 +82,29 @@ struct ImagesListView: View {
                         }
                     }
             }
+            if showingPruneNotice {
+                Text("Images pruned")
+                    .padding(8)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                    .transition(.opacity)
+                    .onAppear {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                            withAnimation { showingPruneNotice = false }
+                        }
+                    }
+            }
         }
         .searchable(text: $searchText, prompt: "Search images...")
         .navigationTitle("Images")
         .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    showingPruneConfirmation = true
+                } label: {
+                    Label("Prune Images", systemImage: "scissors")
+                }
+                .help("Remove unused images")
+            }
             ToolbarItem(placement: .primaryAction) {
                 Button {
                     showingPullDialog = true
@@ -113,6 +134,23 @@ struct ImagesListView: View {
             Button("Cancel", role: .cancel) {}
         } message: { image in
             Text("Permanently remove '\(image.displayName)'?")
+        }
+        .confirmationDialog("Prune Images?", isPresented: $showingPruneConfirmation) {
+            Button("Prune Unused") {
+                Task {
+                    await viewModel.pruneImages(all: false)
+                    withAnimation { showingPruneNotice = true }
+                }
+            }
+            Button("Prune All Unused", role: .destructive) {
+                Task {
+                    await viewModel.pruneImages(all: true)
+                    withAnimation { showingPruneNotice = true }
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Remove unused images? This cannot be undone.")
         }
         .sheet(isPresented: $showingInspect) {
             InspectView(title: "Image Inspect", jsonData: inspectData)

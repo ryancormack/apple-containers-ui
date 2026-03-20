@@ -93,6 +93,39 @@ struct ContainerService {
         return try cli.executeStreaming(arguments: args)
     }
     
+    func getContainerStats() async throws -> [ContainerStats] {
+        do {
+            let output = try await cli.execute(arguments: ["stats", "--format", "json", "--no-stream"])
+            return try parseContainerStatsJSON(output)
+        } catch {
+            throw AppError(message: "Failed to get container stats", underlyingError: error)
+        }
+    }
+    
+    func pruneContainers() async throws -> String {
+        do {
+            return try await cli.execute(arguments: ["prune"])
+        } catch {
+            throw AppError(message: "Failed to prune containers", underlyingError: error)
+        }
+    }
+    
+    func pruneVolumes() async throws -> String {
+        do {
+            return try await cli.execute(arguments: ["volume", "prune"])
+        } catch {
+            throw AppError(message: "Failed to prune volumes", underlyingError: error)
+        }
+    }
+    
+    func pruneNetworks() async throws -> String {
+        do {
+            return try await cli.execute(arguments: ["network", "prune"])
+        } catch {
+            throw AppError(message: "Failed to prune networks", underlyingError: error)
+        }
+    }
+    
     // MARK: - JSON Parsing
     
     private func parseContainerListJSON(_ output: String) throws -> [ContainerInfo] {
@@ -191,6 +224,62 @@ struct ContainerService {
                 name: json.id,
                 subnet: json.status?.ipv4Subnet,
                 subnetV6: json.status?.ipv6Subnet
+            )
+        }
+    }
+    
+    private func parseContainerStatsJSON(_ output: String) throws -> [ContainerStats] {
+        guard let data = output.data(using: .utf8) else {
+            throw AppError(message: "Invalid output encoding")
+        }
+        
+        struct StatsJSON: Codable {
+            let container_id: String?
+            let id: String?
+            let name: String?
+            let cpu_percent: Double?
+            let cpuPercentage: Double?
+            let mem_usage: String?
+            let memoryUsage: String?
+            let mem_limit: String?
+            let memoryLimit: String?
+            let net_io: String?
+            let networkIO: String?
+            let block_io: String?
+            let blockIO: String?
+            let pids: Int?
+            
+            enum CodingKeys: String, CodingKey {
+                case container_id = "container_id"
+                case id
+                case name
+                case cpu_percent = "cpu_percent"
+                case cpuPercentage = "cpuPercentage"
+                case mem_usage = "mem_usage"
+                case memoryUsage = "memoryUsage"
+                case mem_limit = "mem_limit"
+                case memoryLimit = "memoryLimit"
+                case net_io = "net_io"
+                case networkIO = "networkIO"
+                case block_io = "block_io"
+                case blockIO = "blockIO"
+                case pids
+            }
+        }
+        
+        let items = try JSONDecoder().decode([StatsJSON].self, from: data)
+        
+        return items.map { json in
+            let containerId = json.container_id ?? json.id ?? json.name ?? "unknown"
+            return ContainerStats(
+                id: containerId,
+                name: json.name ?? containerId,
+                cpuPercentage: json.cpu_percent ?? json.cpuPercentage ?? 0.0,
+                memoryUsage: json.mem_usage ?? json.memoryUsage ?? "-",
+                memoryLimit: json.mem_limit ?? json.memoryLimit ?? "-",
+                networkIO: json.net_io ?? json.networkIO ?? "-",
+                blockIO: json.block_io ?? json.blockIO ?? "-",
+                pids: json.pids ?? 0
             )
         }
     }

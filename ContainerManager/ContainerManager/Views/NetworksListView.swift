@@ -5,6 +5,8 @@ struct NetworksListView: View {
     @State private var searchText = ""
     @State private var showingInspect = false
     @State private var inspectData = ""
+    @State private var showingPruneConfirmation = false
+    @State private var showingPruneNotice = false
     
     var filteredNetworks: [NetworkInfo] {
         if searchText.isEmpty {
@@ -48,9 +50,30 @@ struct NetworksListView: View {
                 }
             }
         }
+        .overlay {
+            if showingPruneNotice {
+                Text("Networks pruned")
+                    .padding(8)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                    .transition(.opacity)
+                    .onAppear {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                            withAnimation { showingPruneNotice = false }
+                        }
+                    }
+            }
+        }
         .searchable(text: $searchText, prompt: "Search networks...")
         .navigationTitle("Networks")
         .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    showingPruneConfirmation = true
+                } label: {
+                    Label("Prune Networks", systemImage: "scissors")
+                }
+                .help("Remove unused networks")
+            }
             ToolbarItem(placement: .primaryAction) {
                 Button {
                     Task { await viewModel.loadNetworks() }
@@ -63,6 +86,17 @@ struct NetworksListView: View {
         }
         .task {
             await viewModel.loadNetworks()
+        }
+        .confirmationDialog("Prune Networks?", isPresented: $showingPruneConfirmation) {
+            Button("Prune", role: .destructive) {
+                Task {
+                    await viewModel.pruneNetworks()
+                    withAnimation { showingPruneNotice = true }
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Remove all unused networks? This cannot be undone.")
         }
         .sheet(isPresented: $showingInspect) {
             InspectView(title: "Network Inspect", jsonData: inspectData)

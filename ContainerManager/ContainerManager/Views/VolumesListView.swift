@@ -5,6 +5,8 @@ struct VolumesListView: View {
     @State private var searchText = ""
     @State private var showingInspect = false
     @State private var inspectData = ""
+    @State private var showingPruneConfirmation = false
+    @State private var showingPruneNotice = false
     
     var filteredVolumes: [VolumeInfo] {
         if searchText.isEmpty {
@@ -49,9 +51,30 @@ struct VolumesListView: View {
                 }
             }
         }
+        .overlay {
+            if showingPruneNotice {
+                Text("Volumes pruned")
+                    .padding(8)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                    .transition(.opacity)
+                    .onAppear {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                            withAnimation { showingPruneNotice = false }
+                        }
+                    }
+            }
+        }
         .searchable(text: $searchText, prompt: "Search volumes...")
         .navigationTitle("Volumes")
         .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    showingPruneConfirmation = true
+                } label: {
+                    Label("Prune Volumes", systemImage: "scissors")
+                }
+                .help("Remove unused volumes")
+            }
             ToolbarItem(placement: .primaryAction) {
                 Button {
                     Task { await viewModel.loadVolumes() }
@@ -64,6 +87,17 @@ struct VolumesListView: View {
         }
         .task {
             await viewModel.loadVolumes()
+        }
+        .confirmationDialog("Prune Volumes?", isPresented: $showingPruneConfirmation) {
+            Button("Prune", role: .destructive) {
+                Task {
+                    await viewModel.pruneVolumes()
+                    withAnimation { showingPruneNotice = true }
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Remove all unused volumes? This cannot be undone.")
         }
         .sheet(isPresented: $showingInspect) {
             InspectView(title: "Volume Inspect", jsonData: inspectData)

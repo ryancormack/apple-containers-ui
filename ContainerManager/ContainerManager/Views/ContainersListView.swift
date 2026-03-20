@@ -9,6 +9,8 @@ struct ContainersListView: View {
     @State private var showingInspect = false
     @State private var inspectData = ""
     @State private var containerToAct: ContainerInfo?
+    @State private var showingPruneConfirmation = false
+    @State private var showingPruneNotice = false
     
     var filteredContainers: [ContainerInfo] {
         if searchText.isEmpty {
@@ -75,9 +77,30 @@ struct ContainersListView: View {
                 }
             }
         }
+        .overlay {
+            if showingPruneNotice {
+                Text("Stopped containers pruned")
+                    .padding(8)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                    .transition(.opacity)
+                    .onAppear {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                            withAnimation { showingPruneNotice = false }
+                        }
+                    }
+            }
+        }
         .searchable(text: $searchText, prompt: "Search containers...")
         .navigationTitle("Containers")
         .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    showingPruneConfirmation = true
+                } label: {
+                    Label("Prune Stopped", systemImage: "scissors")
+                }
+                .help("Remove all stopped containers")
+            }
             ToolbarItem(placement: .primaryAction) {
                 Button {
                     Task { await viewModel.loadContainers() }
@@ -114,6 +137,17 @@ struct ContainersListView: View {
             Button("Cancel", role: .cancel) {}
         } message: { container in
             Text("Permanently remove '\(container.name)'?")
+        }
+        .confirmationDialog("Prune Stopped Containers?", isPresented: $showingPruneConfirmation) {
+            Button("Prune", role: .destructive) {
+                Task {
+                    await viewModel.pruneContainers()
+                    withAnimation { showingPruneNotice = true }
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Remove all stopped containers? This cannot be undone.")
         }
         .sheet(isPresented: $showingInspect) {
             InspectView(title: "Container Inspect", jsonData: inspectData)

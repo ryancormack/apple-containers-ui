@@ -9,6 +9,7 @@ final class ImagesViewModel {
     var errorMessage: String?
     var selectedImage: ImageInfo.ID?
     var isPulling = false
+    var pruneMessage: String?
     
     private let imageService = ImageService()
     
@@ -66,6 +67,9 @@ final class ImagesViewModel {
                 parts.append("-e")
                 parts.append(env.inheritFromHost ? env.key : "\(env.key)=\(env.value)")
             }
+            if config.readOnly {
+                parts.append("--read-only")
+            }
         }
         
         parts.append(image.id)
@@ -80,6 +84,16 @@ final class ImagesViewModel {
             try await imageService.runImage(reference: image.id, name: name)
         } catch {
             errorMessage = "Failed to run image: \(error.localizedDescription)"
+        }
+    }
+    
+    func pruneImages(all: Bool) async {
+        do {
+            let result = try await imageService.pruneImages(all: all)
+            pruneMessage = result.trimmingCharacters(in: .whitespacesAndNewlines)
+            await loadImages()
+        } catch {
+            errorMessage = "Failed to prune images: \(error.localizedDescription)"
         }
     }
 }

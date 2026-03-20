@@ -11,6 +11,7 @@ struct RunConfigurationSheet: View {
     @State private var extraMounts: [MountEntry] = []
     @State private var envVars: [EnvVar] = []
     @State private var showingQuickMountManager = false
+    @State private var readOnly = false
     
     private var store: QuickMountStore { QuickMountStore.shared }
     
@@ -32,6 +33,7 @@ struct RunConfigurationSheet: View {
                     quickMountsSection
                     extraMountsSection
                     envSection
+                    containerOptionsSection
                 }
                 .formStyle(.grouped)
             }
@@ -67,7 +69,8 @@ struct RunConfigurationSheet: View {
                 let allMounts = buildMounts()
                 let config = RunConfiguration(
                     mounts: allMounts,
-                    envVars: envVars.filter { !$0.key.isEmpty }
+                    envVars: envVars.filter { !$0.key.isEmpty },
+                    readOnly: readOnly
                 )
                 onCopy(config)
                 dismiss()
@@ -232,6 +235,21 @@ struct RunConfigurationSheet: View {
         }
     }
     
+    // MARK: - Container Options
+    
+    private var containerOptionsSection: some View {
+        Section {
+            Toggle("Read-only root filesystem", isOn: $readOnly)
+                .help("Mount the container's root filesystem as read-only (--read-only)")
+        } header: {
+            Text("Container Options")
+        } footer: {
+            Text("When enabled, the container's root filesystem will be mounted as read-only, preventing any writes to the filesystem.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+    
     // MARK: - Helpers
     
     private func selectFolder() {
@@ -265,6 +283,7 @@ struct RunConfigurationSheet: View {
 struct RunConfiguration {
     var mounts: [MountPair]
     var envVars: [EnvVar]
+    var readOnly: Bool = false
 }
 
 struct MountPair {
