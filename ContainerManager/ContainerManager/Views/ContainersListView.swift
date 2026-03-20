@@ -24,6 +24,28 @@ struct ContainersListView: View {
     }
     
     var body: some View {
+        mainContent
+            .overlay { pruneNoticeOverlay }
+            .searchable(text: $searchText, prompt: "Search containers...")
+            .navigationTitle("Containers")
+            .toolbar { toolbarContent }
+            .task {
+                await viewModel.loadContainers()
+            }
+            .modifier(ContainerDialogsModifier(
+                showingStopConfirmation: $showingStopConfirmation,
+                showingKillConfirmation: $showingKillConfirmation,
+                showingRemoveConfirmation: $showingRemoveConfirmation,
+                showingPruneConfirmation: $showingPruneConfirmation,
+                showingInspect: $showingInspect,
+                showingPruneNotice: $showingPruneNotice,
+                containerToAct: $containerToAct,
+                inspectData: inspectData,
+                viewModel: viewModel
+            ))
+    }
+    
+    private var mainContent: some View {
         VStack(spacing: 0) {
             HStack {
                 Toggle(isOn: $viewModel.autoRefreshEnabled) {
@@ -77,80 +99,41 @@ struct ContainersListView: View {
                 }
             }
         }
-        .overlay {
-            if showingPruneNotice {
-                Text("Stopped containers pruned")
-                    .padding(8)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
-                    .transition(.opacity)
-                    .onAppear {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                            withAnimation { showingPruneNotice = false }
-                        }
+    }
+    
+    @ViewBuilder
+    private var pruneNoticeOverlay: some View {
+        if showingPruneNotice {
+            Text("Stopped containers pruned")
+                .padding(8)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                .transition(.opacity)
+                .onAppear {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                        withAnimation { showingPruneNotice = false }
                     }
-            }
-        }
-        .searchable(text: $searchText, prompt: "Search containers...")
-        .navigationTitle("Containers")
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    showingPruneConfirmation = true
-                } label: {
-                    Label("Prune Stopped", systemImage: "scissors")
                 }
-                .help("Remove all stopped containers")
-            }
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    Task { await viewModel.loadContainers() }
-                } label: {
-                    Label("Refresh", systemImage: "arrow.clockwise")
-                }
-                .disabled(viewModel.isLoading)
-                .help("Refresh container list")
-            }
         }
-        .task {
-            await viewModel.loadContainers()
-        }
-        .confirmationDialog("Stop Container?", isPresented: $showingStopConfirmation, presenting: containerToAct) { container in
-            Button("Stop") {
-                Task { await viewModel.stopContainer(container) }
+    }
+    
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .primaryAction) {
+            Button {
+                showingPruneConfirmation = true
+            } label: {
+                Label("Prune Stopped", systemImage: "scissors")
             }
-            Button("Cancel", role: .cancel) {}
-        } message: { container in
-            Text("Stop '\(container.name)' gracefully?")
+            .help("Remove all stopped containers")
         }
-        .confirmationDialog("Kill Container?", isPresented: $showingKillConfirmation, presenting: containerToAct) { container in
-            Button("Kill", role: .destructive) {
-                Task { await viewModel.killContainer(container) }
+        ToolbarItem(placement: .primaryAction) {
+            Button {
+                Task { await viewModel.loadContainers() }
+            } label: {
+                Label("Refresh", systemImage: "arrow.clockwise")
             }
-            Button("Cancel", role: .cancel) {}
-        } message: { container in
-            Text("Force kill '\(container.name)'? This cannot be undone.")
-        }
-        .confirmationDialog("Remove Container?", isPresented: $showingRemoveConfirmation, presenting: containerToAct) { container in
-            Button("Remove", role: .destructive) {
-                Task { await viewModel.removeContainer(container) }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: { container in
-            Text("Permanently remove '\(container.name)'?")
-        }
-        .confirmationDialog("Prune Stopped Containers?", isPresented: $showingPruneConfirmation) {
-            Button("Prune", role: .destructive) {
-                Task {
-                    await viewModel.pruneContainers()
-                    withAnimation { showingPruneNotice = true }
-                }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Remove all stopped containers? This cannot be undone.")
-        }
-        .sheet(isPresented: $showingInspect) {
-            InspectView(title: "Container Inspect", jsonData: inspectData)
+            .disabled(viewModel.isLoading)
+            .help("Refresh container list")
         }
     }
     
@@ -262,5 +245,59 @@ struct ContainersListView: View {
 #Preview {
     NavigationStack {
         ContainersListView()
+    }
+}
+
+private struct ContainerDialogsModifier: ViewModifier {
+    @Binding var showingStopConfirmation: Bool
+    @Binding var showingKillConfirmation: Bool
+    @Binding var showingRemoveConfirmation: Bool
+    @Binding var showingPruneConfirmation: Bool
+    @Binding var showingInspect: Bool
+    @Binding var showingPruneNotice: Bool
+    @Binding var containerToAct: ContainerInfo?
+    var inspectData: String
+    var viewModel: ContainersViewModel
+    
+    func body(content: Content) -> some View {
+        content
+            .confirmationDialog("Stop Container?", isPresented: $showingStopConfirmation, presenting: containerToAct) { container in
+                Button("Stop") {
+                    Task { await viewModel.stopContainer(container) }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: { container in
+                Text("Stop '\(container.name)' gracefully?")
+            }
+            .confirmationDialog("Kill Container?", isPresented: $showingKillConfirmation, presenting: containerToAct) { container in
+                Button("Kill", role: .destructive) {
+                    Task { await viewModel.killContainer(container) }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: { container in
+                Text("Force kill '\(container.name)'? This cannot be undone.")
+            }
+            .confirmationDialog("Remove Container?", isPresented: $showingRemoveConfirmation, presenting: containerToAct) { container in
+                Button("Remove", role: .destructive) {
+                    Task { await viewModel.removeContainer(container) }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: { container in
+                Text("Permanently remove '\(container.name)'?")
+            }
+            .confirmationDialog("Prune Stopped Containers?", isPresented: $showingPruneConfirmation) {
+                Button("Prune", role: .destructive) {
+                    Task {
+                        await viewModel.pruneContainers()
+                        withAnimation { showingPruneNotice = true }
+                    }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Remove all stopped containers? This cannot be undone.")
+            }
+            .sheet(isPresented: $showingInspect) {
+                InspectView(title: "Container Inspect", jsonData: inspectData)
+            }
     }
 }

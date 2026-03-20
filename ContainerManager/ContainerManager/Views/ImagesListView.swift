@@ -29,6 +29,33 @@ struct ImagesListView: View {
     }
     
     var body: some View {
+        mainContent
+            .overlay { noticeOverlay }
+            .searchable(text: $searchText, prompt: "Search images...")
+            .navigationTitle("Images")
+            .toolbar { toolbarContent }
+            .task {
+                await viewModel.loadImages()
+            }
+            .modifier(ImageDialogsModifier(
+                showingRemoveConfirmation: $showingRemoveConfirmation,
+                showingPruneConfirmation: $showingPruneConfirmation,
+                showingInspect: $showingInspect,
+                showingPruneNotice: $showingPruneNotice,
+                showingPullDialog: $showingPullDialog,
+                showingRunDialog: $showingRunDialog,
+                showingCopiedNotice: $showingCopiedNotice,
+                imageToRemove: $imageToRemove,
+                imageToRun: $imageToRun,
+                imageForConfig: $imageForConfig,
+                pullImageReference: $pullImageReference,
+                containerName: $containerName,
+                inspectData: inspectData,
+                viewModel: viewModel
+            ))
+    }
+    
+    private var mainContent: some View {
         VStack(spacing: 0) {
             HStack {
                 if viewModel.isPulling {
@@ -70,122 +97,61 @@ struct ImagesListView: View {
                 }
             }
         }
-        .overlay {
-            if showingCopiedNotice {
-                Text("Command copied to clipboard")
-                    .padding(8)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
-                    .transition(.opacity)
-                    .onAppear {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                            withAnimation { showingCopiedNotice = false }
-                        }
+    }
+    
+    @ViewBuilder
+    private var noticeOverlay: some View {
+        if showingCopiedNotice {
+            Text("Command copied to clipboard")
+                .padding(8)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                .transition(.opacity)
+                .onAppear {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                        withAnimation { showingCopiedNotice = false }
                     }
-            }
-            if showingPruneNotice {
-                Text("Images pruned")
-                    .padding(8)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
-                    .transition(.opacity)
-                    .onAppear {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                            withAnimation { showingPruneNotice = false }
-                        }
+                }
+        }
+        if showingPruneNotice {
+            Text("Images pruned")
+                .padding(8)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                .transition(.opacity)
+                .onAppear {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                        withAnimation { showingPruneNotice = false }
                     }
-            }
-        }
-        .searchable(text: $searchText, prompt: "Search images...")
-        .navigationTitle("Images")
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    showingPruneConfirmation = true
-                } label: {
-                    Label("Prune Images", systemImage: "scissors")
                 }
-                .help("Remove unused images")
-            }
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    showingPullDialog = true
-                } label: {
-                    Label("Pull Image", systemImage: "arrow.down.circle")
-                }
-                .disabled(viewModel.isPulling)
-                .help("Pull an image from a registry")
-            }
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    Task { await viewModel.loadImages() }
-                } label: {
-                    Label("Refresh", systemImage: "arrow.clockwise")
-                }
-                .disabled(viewModel.isLoading)
-                .help("Refresh image list")
-            }
         }
-        .task {
-            await viewModel.loadImages()
+    }
+    
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .primaryAction) {
+            Button {
+                showingPruneConfirmation = true
+            } label: {
+                Label("Prune Images", systemImage: "scissors")
+            }
+            .help("Remove unused images")
         }
-        .confirmationDialog("Remove Image?", isPresented: $showingRemoveConfirmation, presenting: imageToRemove) { image in
-            Button("Remove", role: .destructive) {
-                Task { await viewModel.removeImage(image) }
+        ToolbarItem(placement: .primaryAction) {
+            Button {
+                showingPullDialog = true
+            } label: {
+                Label("Pull Image", systemImage: "arrow.down.circle")
             }
-            Button("Cancel", role: .cancel) {}
-        } message: { image in
-            Text("Permanently remove '\(image.displayName)'?")
+            .disabled(viewModel.isPulling)
+            .help("Pull an image from a registry")
         }
-        .confirmationDialog("Prune Images?", isPresented: $showingPruneConfirmation) {
-            Button("Prune Unused") {
-                Task {
-                    await viewModel.pruneImages(all: false)
-                    withAnimation { showingPruneNotice = true }
-                }
+        ToolbarItem(placement: .primaryAction) {
+            Button {
+                Task { await viewModel.loadImages() }
+            } label: {
+                Label("Refresh", systemImage: "arrow.clockwise")
             }
-            Button("Prune All Unused", role: .destructive) {
-                Task {
-                    await viewModel.pruneImages(all: true)
-                    withAnimation { showingPruneNotice = true }
-                }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Remove unused images? This cannot be undone.")
-        }
-        .sheet(isPresented: $showingInspect) {
-            InspectView(title: "Image Inspect", jsonData: inspectData)
-        }
-        .sheet(item: $imageForConfig) { image in
-            RunConfigurationSheet(image: image) { config in
-                viewModel.copyInteractiveRunCommand(for: image, config: config)
-                withAnimation { showingCopiedNotice = true }
-            }
-        }
-        .alert("Pull Image", isPresented: $showingPullDialog) {
-            TextField("Image reference (e.g. alpine:latest)", text: $pullImageReference)
-            Button("Pull") {
-                let ref = pullImageReference
-                pullImageReference = ""
-                Task { await viewModel.pullImage(reference: ref) }
-            }
-            .disabled(pullImageReference.trimmingCharacters(in: .whitespaces).isEmpty)
-            Button("Cancel", role: .cancel) {
-                pullImageReference = ""
-            }
-        } message: {
-            Text("Enter the image name and tag to pull from a registry.")
-        }
-        .alert("Run Container", isPresented: $showingRunDialog, presenting: imageToRun) { image in
-            TextField("Container name (optional)", text: $containerName)
-            Button("Run") {
-                Task { await viewModel.runImage(image, name: containerName.isEmpty ? nil : containerName) }
-                containerName = ""
-            }
-            Button("Cancel", role: .cancel) {
-                containerName = ""
-            }
-        } message: { image in
-            Text("Run container from '\(image.displayName)'")
+            .disabled(viewModel.isLoading)
+            .help("Refresh image list")
         }
     }
     
@@ -275,5 +241,86 @@ struct ImagesListView: View {
 #Preview {
     NavigationStack {
         ImagesListView()
+    }
+}
+
+private struct ImageDialogsModifier: ViewModifier {
+    @Binding var showingRemoveConfirmation: Bool
+    @Binding var showingPruneConfirmation: Bool
+    @Binding var showingInspect: Bool
+    @Binding var showingPruneNotice: Bool
+    @Binding var showingPullDialog: Bool
+    @Binding var showingRunDialog: Bool
+    @Binding var showingCopiedNotice: Bool
+    @Binding var imageToRemove: ImageInfo?
+    @Binding var imageToRun: ImageInfo?
+    @Binding var imageForConfig: ImageInfo?
+    @Binding var pullImageReference: String
+    @Binding var containerName: String
+    var inspectData: String
+    var viewModel: ImagesViewModel
+    
+    func body(content: Content) -> some View {
+        content
+            .confirmationDialog("Remove Image?", isPresented: $showingRemoveConfirmation, presenting: imageToRemove) { image in
+                Button("Remove", role: .destructive) {
+                    Task { await viewModel.removeImage(image) }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: { image in
+                Text("Permanently remove '\(image.displayName)'?")
+            }
+            .confirmationDialog("Prune Images?", isPresented: $showingPruneConfirmation) {
+                Button("Prune Unused") {
+                    Task {
+                        await viewModel.pruneImages(all: false)
+                        withAnimation { showingPruneNotice = true }
+                    }
+                }
+                Button("Prune All Unused", role: .destructive) {
+                    Task {
+                        await viewModel.pruneImages(all: true)
+                        withAnimation { showingPruneNotice = true }
+                    }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Remove unused images? This cannot be undone.")
+            }
+            .sheet(isPresented: $showingInspect) {
+                InspectView(title: "Image Inspect", jsonData: inspectData)
+            }
+            .sheet(item: $imageForConfig) { image in
+                RunConfigurationSheet(image: image) { config in
+                    viewModel.copyInteractiveRunCommand(for: image, config: config)
+                    withAnimation { showingCopiedNotice = true }
+                }
+            }
+            .alert("Pull Image", isPresented: $showingPullDialog) {
+                TextField("Image reference (e.g. alpine:latest)", text: $pullImageReference)
+                Button("Pull") {
+                    let ref = pullImageReference
+                    pullImageReference = ""
+                    Task { await viewModel.pullImage(reference: ref) }
+                }
+                .disabled(pullImageReference.trimmingCharacters(in: .whitespaces).isEmpty)
+                Button("Cancel", role: .cancel) {
+                    pullImageReference = ""
+                }
+            } message: {
+                Text("Enter the image name and tag to pull from a registry.")
+            }
+            .alert("Run Container", isPresented: $showingRunDialog, presenting: imageToRun) { image in
+                TextField("Container name (optional)", text: $containerName)
+                Button("Run") {
+                    Task { await viewModel.runImage(image, name: containerName.isEmpty ? nil : containerName) }
+                    containerName = ""
+                }
+                Button("Cancel", role: .cancel) {
+                    containerName = ""
+                }
+            } message: { image in
+                Text("Run container from '\(image.displayName)'")
+            }
     }
 }
