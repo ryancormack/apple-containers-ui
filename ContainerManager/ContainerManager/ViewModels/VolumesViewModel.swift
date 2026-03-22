@@ -7,6 +7,7 @@ final class VolumesViewModel {
     var isLoading = false
     var errorMessage: String?
     var selectedVolume: VolumeInfo.ID?
+    var pruneMessage: String?
     
     private let containerService = ContainerService()
     
@@ -26,5 +27,15 @@ final class VolumesViewModel {
     
     func inspectVolume(_ name: String) async throws -> String {
         return try await containerService.inspectVolume(name: name)
+    }
+    
+    func pruneVolumes() async {
+        do {
+            let result = try await containerService.pruneVolumes()
+            pruneMessage = result.trimmingCharacters(in: .whitespacesAndNewlines)
+            await loadVolumes()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 }

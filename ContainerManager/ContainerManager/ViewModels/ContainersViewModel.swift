@@ -7,6 +7,7 @@ final class ContainersViewModel {
     var isLoading = false
     var errorMessage: String?
     var selectedContainer: ContainerInfo.ID?
+    var pruneMessage: String?
     
     var autoRefreshEnabled: Bool {
         didSet {
@@ -102,6 +103,16 @@ final class ContainersViewModel {
     
     func inspectContainer(_ id: String) async throws -> String {
         return try await containerService.inspectContainer(id: id)
+    }
+    
+    func pruneContainers() async {
+        do {
+            let result = try await containerService.pruneContainers()
+            pruneMessage = result.trimmingCharacters(in: .whitespacesAndNewlines)
+            await loadContainers()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
     
     deinit {

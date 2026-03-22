@@ -38,6 +38,8 @@ struct ContentView: View {
                     switch selection {
                     case .containers:
                         ContainersListView()
+                    case .stats:
+                        StatsView()
                     case .images:
                         ImagesListView()
                     case .volumes:
@@ -103,6 +105,7 @@ enum SystemStatus {
 
 enum SidebarItem: String, CaseIterable, Identifiable {
     case containers
+    case stats
     case images
     case volumes
     case networks
@@ -113,6 +116,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .containers: return "Containers"
+        case .stats: return "Stats"
         case .images: return "Images"
         case .volumes: return "Volumes"
         case .networks: return "Networks"
@@ -123,6 +127,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     var icon: String {
         switch self {
         case .containers: return "shippingbox"
+        case .stats: return "chart.bar.fill"
         case .images: return "photo.stack"
         case .volumes: return "externaldrive"
         case .networks: return "network"

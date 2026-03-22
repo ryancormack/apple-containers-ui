@@ -90,6 +90,16 @@ struct ImageService {
         }
     }
     
+    func pruneImages(all: Bool) async throws -> String {
+        do {
+            var args = ["image", "prune"]
+            if all { args.append("--all") }
+            return try await cli.execute(arguments: args)
+        } catch {
+            throw AppError(message: "Failed to prune images", underlyingError: error)
+        }
+    }
+    
     private func parseImageListJSON(_ output: String) throws -> [ImageInfo] {
         guard let data = output.data(using: .utf8) else {
             throw AppError(message: "Invalid output encoding")
